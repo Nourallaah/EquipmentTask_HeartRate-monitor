@@ -162,7 +162,7 @@ class HeartMonitorGUI(QMainWindow):
             processed_signal = self.preprocessor.preprocess_pipeline(raw_signal, fs, steps)
             
             # 2. QRS Detection & RR Calculation
-            r_peaks = self.qrs_detector.pan_tompkins_detector(processed_signal, fs)
+            r_peaks = self.qrs_detector.r_peaks_detector(processed_signal, fs)
             rr_intervals = self.qrs_detector.find_rr_intervals(r_peaks, fs)
             clean_rr = self.qrs_detector.clean_rr_intervals(rr_intervals)
             

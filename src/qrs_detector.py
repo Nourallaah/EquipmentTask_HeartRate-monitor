@@ -1,35 +1,76 @@
 import numpy as np
-from scipy.signal import butter, lfilter
+from scipy.signal import find_peaks, butter, filtfilt
 
 class QRSDetector:
-    def pan_tompkins_detector(self, ecg_signal, sampling_rate):
-        # 1. Bandpass Filter (5-15 Hz)
-        nyquist = 0.5 * sampling_rate
-        b, a = butter(1, [5.0/nyquist, 15.0/nyquist], btype='band')
-        filtered_ecg = lfilter(b, a, ecg_signal)
+    def _bandpass_filter(self, signal, fs, lowcut=0.5, highcut=30.0, order=2):
+        nyq = 0.5 * fs
+        low = lowcut / nyq
+        high = highcut / nyq
+        b, a = butter(order, [low, high], btype="band")
+        return filtfilt(b, a, signal)
+
+    def r_peaks_detector(self, ecg_signal, sampling_rate):
+        """
+        Simple R-peak detection.
+        """
+        # distance in samples corresponding to min RR interval
+        min_rr_s = 0.2
+        distance = int(min_rr_s * sampling_rate)
+
+        # Pre-process for peak detection
+        sig = self._bandpass_filter(ecg_signal, sampling_rate)
         
-        # 2. Derivative & 3. Squaring
-        # We prepend to maintain array length after differentiation
-        squared = np.diff(filtered_ecg, prepend=filtered_ecg[0])**2
+        # Detect peaks on the absolute signal
+        abs_sig = np.abs(sig)
         
-        # 4. Moving Window Integration (150ms window)
-        window_size = int(0.150 * sampling_rate)
-        integrated = np.convolve(squared, np.ones(window_size)/window_size, mode='same')
+        # Adaptive prominence based on signal characteristics
+        prominence = max(0.3 * np.std(abs_sig), 0.1 * np.max(abs_sig))
         
-        # 5. Thresholding
-        integrated /= (np.max(integrated) if np.max(integrated) > 0 else 1)
-        threshold = 0.15 # Adjusted for clean synthetic peaks
-        peaks = []
-        min_distance = int(0.250 * sampling_rate) # 250ms refractory period
-        last_peak = -min_distance
+        # Find peaks on absolute signal
+        peaks, properties = find_peaks(
+            abs_sig, 
+            distance=distance, 
+            prominence=prominence,
+            height=0.2 * np.max(abs_sig) if np.max(abs_sig) > 0 else 0
+        )
         
-        for i in range(1, len(integrated)-1):
-            if integrated[i] > threshold and integrated[i] > integrated[i-1] and integrated[i] > integrated[i+1]:
-                if i - last_peak > min_distance:
-                    peaks.append(i)
-                    last_peak = i
-                    
-        return np.array(peaks)
+        # Refine peak positions to actual signal extrema
+        refined_peaks = []
+        search_window = int(0.04 * sampling_rate)  # 40ms search window
+        
+        for peak in peaks:
+            start = max(0, peak - search_window)
+            end = min(len(sig) - 1, peak + search_window)
+            
+            # Use ecg_signal for refinement
+            segment = ecg_signal[start:end + 1]
+            if len(segment) == 0:
+                continue
+                
+            # Find whether positive or negative deflection is stronger
+            max_idx = np.argmax(segment)
+            min_idx = np.argmin(segment)
+            max_val = segment[max_idx]
+            min_val = segment[min_idx]
+            
+            # Choose the larger absolute deflection
+            if abs(min_val) > abs(max_val):
+                actual_peak = min_idx + start
+            else:
+                actual_peak = max_idx + start
+                
+            refined_peaks.append(int(actual_peak))
+        
+        # Remove duplicates and sort
+        refined_peaks = sorted(set(refined_peaks))
+        
+        # Final refractory period enforcement
+        final_peaks = []
+        for peak in refined_peaks:
+            if not final_peaks or (peak - final_peaks[-1]) >= distance:
+                final_peaks.append(peak)
+        
+        return np.array(final_peaks)
 
     def find_rr_intervals(self, r_peaks, sampling_rate):
         """Convert R-peak indices into RR intervals in milliseconds."""
