@@ -1,11 +1,17 @@
-# main.py
 import sys
-import os
-from src.gui.main_window import main
+from PyQt5.QtWidgets import QApplication
+from src.gui.main_window import HeartMonitorGUI
 
-if __name__ == "__main__":
-    # Ensure the application runs from the correct directory
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+def main():
+    """Main function to run the application"""
+    app = QApplication(sys.argv)
     
-    # Run the GUI application
+    # Create and show main window
+    window = HeartMonitorGUI()
+    window.show()
+    
+    # Run application
+    sys.exit(app.exec_())
+
+if __name__ == '__main__':
     main()
